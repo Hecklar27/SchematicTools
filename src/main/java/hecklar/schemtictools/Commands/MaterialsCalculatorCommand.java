@@ -233,7 +233,7 @@ public class MaterialsCalculatorCommand {
         if (reportFile == null) return;
 
         // Create a command to open the file
-        String openCommand = "/compose materials open-last";
+        String openCommand = "/tools materials open-last";
 
         // Create a clickable message with better formatting - Fixed the underscore issue
         MutableText message = Text.literal("\n§aDetailed materials report saved! ").append(
@@ -242,12 +242,15 @@ public class MaterialsCalculatorCommand {
                                 .withColor(Formatting.AQUA)
                                 .withBold(true)
                                 .withUnderline(true)
-                                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, openCommand))
+                                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, openCommand))
                                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
                                         Text.literal("Click to open: " + reportFile.getName())
                                 ))
                         )
         );
+        
+        // Debug: Log the command being executed
+        LOGGER.info("Setting up click event for command: " + openCommand);
         // Send the clickable message
         source.sendFeedback(message);
 
