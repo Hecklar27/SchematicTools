@@ -3,6 +3,7 @@ package hecklar.schemtictools;
 import hecklar.schemtictools.Commands.ConvertCommand;
 import hecklar.schemtictools.Commands.MaterialsCalculatorCommand;
 import hecklar.schemtictools.Commands.SchematicBeamCommand;
+import hecklar.schemtictools.Commands.SchematicSimilarityCommand;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.ModInitializer;
 
@@ -26,6 +27,7 @@ public class SchematicTools implements ClientModInitializer {
 			ConvertCommand.register(dispatcher);
 			MaterialsCalculatorCommand.register(dispatcher);
 			SchematicBeamCommand.register(dispatcher);
+			SchematicSimilarityCommand.register(dispatcher);
 		});
 	}
 	public static void sendMessage(String message) {
