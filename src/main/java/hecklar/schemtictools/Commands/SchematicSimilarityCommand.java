@@ -9,8 +9,12 @@ import fi.dy.masa.litematica.schematic.container.LitematicaBlockStateContainer;
 import fi.dy.masa.litematica.selection.Box;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
+import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,7 +31,87 @@ import java.util.*;
  * Usage: /compose compare <schematic_name> <schematic_directory>
  */
 public class SchematicSimilarityCommand {
+    /**
+     * Set the block filter for similarity comparison
+     */
+    private static int setBlockFilter(String blockName, FabricClientCommandSource source) {
+        try {
+            // Parse the block name
+            Block block = null;
+
+            // Try direct registry lookup
+            Identifier blockId = Identifier.tryParse(blockName.toLowerCase().replace(' ', '_'));
+            if (blockId != null) {
+                block = Registries.BLOCK.get(blockId);
+            }
+
+            // If not found, try with minecraft namespace
+            if ((block == null || block == Blocks.AIR) && !blockName.equals("air")) {
+                blockId = Identifier.tryParse("minecraft:" + blockName.toLowerCase().replace(' ', '_'));
+                if (blockId != null) {
+                    block = Registries.BLOCK.get(blockId);
+                }
+            }
+
+            // Check if we found a valid block
+            if ((block == null || block == Blocks.AIR) && !blockName.equals("air")) {
+                source.sendFeedback(Text.literal("§cUnknown block: " + blockName));
+                source.sendFeedback(Text.literal("§7Example: /compose compare setblock stone"));
+                source.sendFeedback(Text.literal("§7Example: /compose compare setblock cobblestone"));
+                return 0;
+            }
+
+            filterBlock = block.getDefaultState();
+            source.sendFeedback(Text.literal("§aBlock filter set to: §f" + block.getName().getString()));
+            source.sendFeedback(Text.literal("§7Similarity comparison will now only consider §f" + block.getName().getString() + "§7 blocks"));
+
+            return 1;
+        } catch (Exception e) {
+            source.sendFeedback(Text.literal("§cError setting block filter: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    /**
+     * Suggest common block names for auto-completion
+     */
+    private static void suggestBlockNames(SuggestionsBuilder builder) {
+        String input = builder.getRemaining().toLowerCase();
+
+        // Common blocks that are often used in schematics
+        String[] commonBlocks = {
+                "stone", "cobblestone", "dirt", "grass_block", "oak_planks", "spruce_planks",
+                "birch_planks", "jungle_planks", "acacia_planks", "dark_oak_planks",
+                "stone_bricks", "bricks", "sandstone", "glass", "wool", "concrete",
+                "terracotta", "quartz_block", "oak_log", "spruce_log", "birch_log",
+                "water", "lava", "sand", "gravel", "gold_block", "iron_block",
+                "diamond_block", "emerald_block", "netherrack", "obsidian",
+                "glowstone", "ice", "snow_block", "clay", "pumpkin", "netherite_block",
+                "copper_block", "deepslate", "andesite", "diorite", "granite",
+                "blackstone", "basalt", "end_stone", "prismarine", "sea_lantern",
+                "redstone_block", "slime_block", "honey_block", "tnt", "bedrock"
+        };
+
+        // Filter suggestions based on current input
+        for (String block : commonBlocks) {
+            if (block.startsWith(input) || block.contains(input)) {
+                builder.suggest(block);
+            }
+        }
+
+        // Also suggest from the registry for more complete coverage
+        Registries.BLOCK.stream()
+                .map(block -> Registries.BLOCK.getId(block))
+                .filter(id -> id.getNamespace().equals("minecraft"))
+                .map(id -> id.getPath())
+                .filter(path -> path.startsWith(input) || path.contains(input))
+                .limit(50) // Limit to prevent overwhelming the suggestion list
+                .forEach(builder::suggest);
+    }
     private static final Logger LOGGER = LogManager.getLogger("SchematicSimilarity");
+
+    // Static variable to store the selected block filter
+    private static BlockState filterBlock = null;
 
     // Result class to store similarity data
     private static class SimilarityResult {
@@ -47,6 +131,7 @@ public class SchematicSimilarityCommand {
     public static void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
         dispatcher.register(ClientCommandManager.literal("compose")
                 .then(ClientCommandManager.literal("compare")
+                        // Main compare command
                         .then(ClientCommandManager.argument("args", StringArgumentType.greedyString())
                                 .suggests((context, builder) -> {
                                     // Provide combined suggestions
@@ -56,6 +141,35 @@ public class SchematicSimilarityCommand {
                                 .executes(context -> {
                                     String args = StringArgumentType.getString(context, "args");
                                     return executeComparisonFromArgs(args, context.getSource());
+                                }))
+                        // Set block filter command
+                        .then(ClientCommandManager.literal("setblock")
+                                .then(ClientCommandManager.argument("block", StringArgumentType.string())
+                                        .suggests((context, builder) -> {
+                                            // Suggest common block names
+                                            suggestBlockNames(builder);
+                                            return builder.buildFuture();
+                                        })
+                                        .executes(context -> {
+                                            String blockName = StringArgumentType.getString(context, "block");
+                                            return setBlockFilter(blockName, context.getSource());
+                                        })))
+                        // Clear block filter command
+                        .then(ClientCommandManager.literal("clearblock")
+                                .executes(context -> {
+                                    filterBlock = null;
+                                    context.getSource().sendFeedback(Text.literal("§aBlock filter cleared. Now comparing all blocks."));
+                                    return 1;
+                                }))
+                        // Show current filter
+                        .then(ClientCommandManager.literal("filter")
+                                .executes(context -> {
+                                    if (filterBlock != null) {
+                                        context.getSource().sendFeedback(Text.literal("§7Current block filter: §f" + filterBlock.getBlock().getName().getString()));
+                                    } else {
+                                        context.getSource().sendFeedback(Text.literal("§7No block filter set. Comparing all blocks."));
+                                    }
+                                    return 1;
                                 }))));
     }
 
@@ -159,6 +273,13 @@ public class SchematicSimilarityCommand {
             source.sendFeedback(Text.literal("§7Searching for schematic: §f" + schematicName));
             source.sendFeedback(Text.literal("§7In directory: §f" + directory));
 
+            // Show filter status
+            if (filterBlock != null) {
+                source.sendFeedback(Text.literal("§6Using block filter: §f" + filterBlock.getBlock().getName().getString()));
+            } else {
+                source.sendFeedback(Text.literal("§7Comparing all block types"));
+            }
+
             // Load reference schematic
             File referenceFile = findSchematicFile(baseDir, schematicName);
             if (referenceFile == null) {
@@ -186,14 +307,24 @@ public class SchematicSimilarityCommand {
                 return 0;
             }
 
-            // Extract reference schematic top blocks
+            // Extract reference schematic top blocks (with filter if set)
             Map<BlockPos, BlockState> refTopBlocks = extractTopBlocks(refSchematic);
+            if (filterBlock != null) {
+                refTopBlocks = filterBlocksByType(refTopBlocks, filterBlock);
+            }
+
             if (refTopBlocks.isEmpty()) {
-                source.sendFeedback(Text.literal("§cReference schematic contains no blocks"));
+                if (filterBlock != null) {
+                    source.sendFeedback(Text.literal("§cReference schematic contains no " + filterBlock.getBlock().getName().getString() + " blocks"));
+                } else {
+                    source.sendFeedback(Text.literal("§cReference schematic contains no blocks"));
+                }
                 return 0;
             }
 
-            source.sendFeedback(Text.literal("§7Reference schematic has §f" + refTopBlocks.size() + "§7 top blocks"));
+            String blockTypeText = filterBlock != null ?
+                    filterBlock.getBlock().getName().getString() + " blocks" : "top blocks";
+            source.sendFeedback(Text.literal("§7Reference schematic has §f" + refTopBlocks.size() + "§7 " + blockTypeText));
             source.sendFeedback(Text.literal("§6Analyzing schematics in directory: §f" + directory));
 
             // Find all schematics in directory
@@ -228,6 +359,10 @@ public class SchematicSimilarityCommand {
                     }
 
                     Map<BlockPos, BlockState> topBlocks = extractTopBlocks(schematic);
+                    if (filterBlock != null) {
+                        topBlocks = filterBlocksByType(topBlocks, filterBlock);
+                    }
+
                     if (topBlocks.isEmpty()) {
                         continue;
                     }
@@ -274,7 +409,9 @@ public class SchematicSimilarityCommand {
                 // Show top 5 results if there are more
                 if (results.size() > 1) {
                     source.sendFeedback(Text.literal(""));
-                    source.sendFeedback(Text.literal("§7Top 5 Similar Schematics:"));
+                    String filterText = filterBlock != null ?
+                            " (based on " + filterBlock.getBlock().getName().getString() + " positions)" : "";
+                    source.sendFeedback(Text.literal("§7Top 5 Similar Schematics" + filterText + ":"));
 
                     int count = 0;
                     for (SimilarityResult result : results) {
@@ -301,6 +438,21 @@ public class SchematicSimilarityCommand {
             source.sendFeedback(Text.literal("§cError during comparison: " + e.getMessage()));
             return 0;
         }
+    }
+
+    /**
+     * Filter blocks map to only include blocks of a specific type
+     */
+    private static Map<BlockPos, BlockState> filterBlocksByType(Map<BlockPos, BlockState> blocks, BlockState filterType) {
+        Map<BlockPos, BlockState> filtered = new HashMap<>();
+
+        for (Map.Entry<BlockPos, BlockState> entry : blocks.entrySet()) {
+            if (entry.getValue().getBlock() == filterType.getBlock()) {
+                filtered.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        return filtered;
     }
 
     /**
@@ -534,6 +686,15 @@ public class SchematicSimilarityCommand {
                 writer.println("Generated: " + LocalDateTime.now());
                 writer.println("Reference Schematic: " + referenceName);
                 writer.println("Search Directory: " + directory);
+
+                // Add filter information to report
+                if (filterBlock != null) {
+                    writer.println("Block Filter: " + filterBlock.getBlock().getName().getString());
+                    writer.println("Analysis Type: Filtered by specific block positions");
+                } else {
+                    writer.println("Analysis Type: All block types");
+                }
+
                 writer.println("Total Schematics Analyzed: " + results.size());
                 writer.println();
                 writer.println("Results (sorted by similarity):");
@@ -545,7 +706,11 @@ public class SchematicSimilarityCommand {
                             rank++,
                             result.similarity * 100,
                             result.schematicPath));
-                    writer.println(String.format("   Matching blocks: %d/%d",
+
+                    String blockText = filterBlock != null ?
+                            filterBlock.getBlock().getName().getString() + " blocks" : "blocks";
+                    writer.println(String.format("   Matching %s: %d/%d",
+                            blockText,
                             result.matchingBlocks,
                             result.totalBlocks));
                     writer.println();
@@ -563,6 +728,12 @@ public class SchematicSimilarityCommand {
                     writer.println(String.format("Highest Similarity: %.2f%%", results.get(0).similarity * 100));
                     writer.println(String.format("Lowest Similarity: %.2f%%",
                             results.get(results.size() - 1).similarity * 100));
+
+                    if (filterBlock != null) {
+                        writer.println();
+                        writer.println("Note: Similarity calculated based only on " +
+                                filterBlock.getBlock().getName().getString() + " block positions.");
+                    }
                 }
             }
 
