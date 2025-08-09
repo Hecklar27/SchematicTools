@@ -129,7 +129,7 @@ public class SchematicSimilarityCommand {
     }
 
     public static void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
-        dispatcher.register(ClientCommandManager.literal("compose")
+        dispatcher.register(ClientCommandManager.literal("tools")
                 .then(ClientCommandManager.literal("compare")
                         // Main compare command
                         .then(ClientCommandManager.argument("args", StringArgumentType.greedyString())
